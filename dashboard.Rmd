@@ -1,0 +1,135 @@
+---
+title: "RNA-Sequencing Analysis"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+    theme:
+      bootswatch: simplex
+runtime: shiny
+---
+
+```{r global, include=FALSE}
+library(flexdashboard)
+library(shiny)
+library(dplyr)
+library(plotly)
+library(ComplexHeatmap)
+library(cluster)
+library(FactoMineR)
+library(factoextra)
+library(tidyverse)
+library(reshape2)
+library(fungible)
+```
+
+```{r data}
+dat = readxl::read_xlsx("GSE160184_Normalized_Annotated_Batch_Corrected_expr_rpmi_health_hiv.xlsx")
+dat = data.frame(dat[1:4000,]) # reduce data size for this project
+dat = data.frame(dat)
+rownames(dat) = dat[,1]
+dat = dat[,-c(1:2)]
+heat = t(scale(t(dat))) # normalize scale
+clust = scale(dat)
+```
+
+
+# Introduction
+
+## {.sidebar}
+
+**The goal of this dashboard is to provide the user ability to determine the impact of distance measures and number of groups on the results of clustering to make informed decisions.**
+
+Users can toggle to the second page "Analysis" to view the effect these decisions have on heatmaps, dendrograms, and K-mean clustering.
+
+## Data
+
+### RNA-sequencing data comparing HIV controls v. HIV antiretroviral therapy
+
+These data were drawn from individuals with human immunodeficiency virus (HIV). The control group were not using medication at inclusion, while the treatment group were on an anti-inflammatory cART treatment. Samples were run through monocyte-only RNA expression profiling. This dashboard uses a subset of the first 4000 genes for efficiency.
+
+The data used in this dashboard is the normalized RNA sequencing counts retrieved from the Gene Expression Omnibus under [GSE160184](https://www.ncbi.xyz/geo/query/acc.cgi?acc=GSE160184). These data were published in [Chronic HIV infection induces transcriptional and functional reprogramming of innate immune cells](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8119206/) (van der Heijden et al., 2021).  
+
+van der Heijden, W. A., Van de Wijer, L., Keramati, F., Trypsteen, W., Rutsaert, S., Horst, R. T., Jaeger, M., Koenen, H. J., Stunnenberg, H. G., Joosten, I., Verweij, P. E., van Lunzen, J., Dinarello, C. A., Joosten, L. A., Vandekerckhove, L., Netea, M. G., van der Ven, A. J., & de Mast, Q. (2021). Chronic HIV infection induces transcriptional and functional reprogramming of innate immune cells. JCI insight, 6(7), e145928. https://doi.org/10.1172/jci.insight.145928
+
+### Dataset header
+
+```{r}
+knitr::kable(head(dat, 20))
+```
+
+
+# Analysis
+
+## Overview {.sidebar}
+
+
+```{r}
+selectInput("dist", label = "Heatmap distance method:", 
+            choices = c("Euclidean" = "euclidean", "Manhattan" = "manhattan", "Pearson" = "pearson",
+                        "Spearman" = "spearman", "Kendall" = "kendall"))
+selectInput("corr", label = "Correlation dendrogram method:",
+            choices = c("Ward" = "ward.D2", "Single" = "single",
+                        "Complete" = "complete", "Average" = "average",
+                        "Centroid" = "centroid"))
+sliderInput("group", label = "Number of groups for dendrogram and K-means:",
+            min = 2, max = 10, value = 5, step = 1)
+```
+
+
+Graphs {.tabset}
+-----------------------------------------------------------------------------------------------
+
+### Heatmap
+
+```{r}
+renderPlot({
+  Heatmap(heat,
+      heatmap_legend_param = list(
+      color_bar = 'continuous',
+                  legend_direction = 'vertical',
+                  legend_width = unit(8, 'cm'),
+                  legend_height = unit(5.0, 'cm'),
+                  title_position = 'topcenter',
+                  title_gp=gpar(fontsize = 12, fontface = 'bold'),
+                  labels_gp=gpar(fontsize = 12, fontface = 'bold')),
+      #cluster_rows = TRUE,
+      show_row_dend = FALSE,
+      #row_title = 'Statistically significant genes',
+      row_title_side = 'left',
+      row_title_gp = gpar(fontsize = 12,  fontface = 'bold'),
+      row_title_rot = 90,
+      show_row_names = FALSE,
+      row_names_gp = gpar(fontsize = 10, fontface = 'bold'),
+      row_names_side = 'left',
+      row_dend_width = unit(25,'mm'),
+      clustering_distance_rows = input$dist,
+      clustering_distance_columns = input$dist)
+})
+```
+
+### Dendrogram
+
+```{r}
+renderPlot({
+    val = hclust(dist(clust), method=input$corr)
+    # fviz_dend(val, cex=0.5, k=input$group, palette="jco")
+    cl_members = cutree(tree = val, k = input$group)
+    plot(x = val, labels =  row.names(val), cex = 0.1, hang = -1, xlab = NULL)
+    rect.hclust(tree = val, k = input$group, which = 1:input$group,
+                border = 1:input$group, cluster = cl_members)
+  })
+```
+
+### K-Means Clustering
+
+```{r}
+renderPlot({
+  km.res = kmeans(dat, centers = input$group, nstart = 20)
+  fviz_cluster(km.res, data = dat, 
+             geom = "point",
+             ellipse.type = "convex", 
+             ggtheme = theme_bw())
+})
+```
+
